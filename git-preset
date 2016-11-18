@@ -1,0 +1,134 @@
+#!/usr/bin/env bash
+
+VERSION=0.0
+PRESET_DIR="$HOME/.config/git-preset/"
+
+usage ()
+{
+    echo "Git-preset version $VERSION"
+    echo "Copies git config presets to the current git directory."
+    echo "Usage:"
+    echo "  git preset [options] [preset name]"
+    echo "Options:"
+    echo "  -h, --help                  Show this help message"
+    echo "  -f, --filter <regex>        Only apply or save keys that match <regex>"
+    echo "  -s, --save-preset <name>    Save local config as new preset <name>"
+    echo "  -c, --clobber               When saving, overwrite the preset if it exists"
+    echo "  -d, --dry-run               Don't actually apply settings, just display"
+    echo "  --preset-dir                Location of presets (default: $PRESET_DIR)"
+}
+
+apply_preset ()
+{
+    # reads in a preset using git config -f
+    
+    # Get the preset location, check if it exists
+    preset=$PRESET_DIR/$1
+    if [ ! -e $preset ]
+    then
+        echo "no such preset: $1"
+        exit 1
+    fi
+    
+    # Read the configuration options into the array cfgopts
+    if [ $REGEX ]
+    then
+        mapfile -t cfgopts < <(git config -f $preset -l | grep $REGEX)
+    else
+        mapfile -t cfgopts < <(git config -f $preset -l)
+    fi
+
+    # for every config option, get the key and the value
+    for (( i=0; i<${#cfgopts[@]}; i++ ))
+    do 
+        key=$(echo ${cfgopts[i]} | cut -f 1 -d '=')
+        value=$(echo ${cfgopts[i]} | cut -f -1 -d '=' --complement)
+        echo "--> Setting $key to $value"
+        if [ ! $DRYRUN ]
+        then 
+            git config --local $key "$value"
+            if [[ $? -gt 0 ]]
+            then
+                echo "Error setting $key to $value"
+                exit $?
+            fi
+        fi
+    done
+}
+
+save_preset ()
+{
+    # saves current config as preset
+    # Get the preset location, check if it exists
+    preset=$PRESET_DIR/$1
+    if [[ -e $preset && ! $CLOBBER ]]
+    then
+        echo "Preset already exists: $1"
+        exit 1
+    fi
+    
+    # Read the configuration options into the array cfgopts
+    if [ $REGEX ]
+    then
+        mapfile -t cfgopts < <(git config --local -l | grep $REGEX)
+    else
+        mapfile -t cfgopts < <(git config --local -l)
+    fi
+
+    # for every config option, get the key and the value
+    for (( i=0; i<${#cfgopts[@]}; i++ ))
+    do 
+        key=$(echo ${cfgopts[i]} | cut -f 1 -d '=')
+        value=$(echo ${cfgopts[i]} | cut -f -1 -d '=' --complement)
+        echo "--> Saving $key = $value"
+        if [ ! $DRYRUN ]
+        then
+            git config -f $preset $key "$value"
+            if [[ $? -gt 0 ]]
+            then
+                echo "Error setting $key to $value"
+                exit $?
+            fi
+        fi
+    done
+}
+
+while [[ $# -gt 1 ]]
+do
+key="$1"
+
+case $key in
+    -h|--help)
+    usage
+	exit 0
+    ;;
+    --preset-dir)
+    PRESET_DIR="$2"
+    shift # past argument
+    ;;
+    -r|--regex)
+    REGEX="$2"
+    shift # past argument
+    ;;
+    -d|--dry-run)
+    DRYRUN=true
+    ;;
+    -c|--clobber)
+    CLOBBER=true
+    ;;
+    -s|--save-preset)
+    SAVE_PRESET=true
+    ;;
+    *)
+            # unknown option
+    ;;
+esac
+shift # past argument or value
+done
+
+if [ ! $SAVE_PRESET ]
+then
+    apply_preset $1
+else
+    save_preset $1
+fi
